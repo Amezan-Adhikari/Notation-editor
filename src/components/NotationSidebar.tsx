@@ -5,7 +5,23 @@ import { useState, useEffect } from "react";
 import { Copy, Check } from "lucide-react";
 
 // Simple array of Swaras (notes)
-const SWARAS = ['स', 'रे', 'ग', 'म', 'प', 'ध', 'नि'];
+const SWARAS = [
+  "प़", 
+  "ध़", 
+  "ऩि", 
+  "सा", 
+  "रे", 
+  "ग", 
+  "म", 
+  "प", 
+  "ध", 
+  "नि", 
+  "सां", 
+  "रें", 
+  "गं", 
+  "मं", 
+  "पं"
+];
 
 export default function NotationSidebar({ onNotationSelect }) {
   const [copiedNotation, setCopiedNotation] = useState(null);
@@ -63,7 +79,7 @@ export default function NotationSidebar({ onNotationSelect }) {
   return (
     <div className="fixed right-0 top-1/2 transform -translate-y-1/2 bg-white shadow-lg p-4 rounded-l-lg">
       <h3 className="text-center font-bold mb-4">Swaras</h3>
-      <div className="grid grid-cols-1 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {SWARAS.map((swara) => (
           <button 
             key={swara}
