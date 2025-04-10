@@ -16,6 +16,7 @@ interface ColumnData {
 }
 
 interface SongComposition {
+  title: string;
   beat: string;
   columns: number;
   bpm: number;
@@ -25,8 +26,10 @@ interface SongComposition {
 export default function Notation() {
   const [beat, setBeat] = useState("2/4");
   const [bpm, setBpm] = useState(180);
+  const [songTitle, setSongTitle] = useState("Untitled Song");
   const [columns, setColumns] = useState(4);
   const [songComposition, setSongComposition] = useState<SongComposition>({
+    title: "Untitled Song",
     beat: "2/4",
     columns: 1,
     bpm: 180,
@@ -35,9 +38,157 @@ export default function Notation() {
   const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState<number | null>(null);
   const [activeBoxIndex, setActiveBoxIndex] = useState<number | null>(null);
+  const [isShiftHeld, setIsShiftHeld] = useState(false);
+  const [lastEntryWithShift, setLastEntryWithShift] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importJsonText, setImportJsonText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [savedSongs, setSavedSongs] = useState<{id: string, title: string}[]>([]);
+  const [showSavedSongsPanel, setShowSavedSongsPanel] = useState(false);
+
+  // Refs to track all input elements for focus management
+  const inputRefs = useRef<Array<Array<Array<HTMLInputElement | null>>>>([]);
 
   const WIDTH_CYCLE: ColumnData['lyricsWidth'][] = [undefined, '1/4', '1/2', '3/4', 'full'];
 
+  useEffect(() => {
+    // Handle keyboard events for Shift key
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.shiftKey) {
+        setIsShiftHeld(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.shiftKey && isShiftHeld) {
+        setIsShiftHeld(false);
+        
+        // If the last entry was made with shift, move focus to next input
+        if (lastEntryWithShift) {
+          moveFocusToNextInput();
+          setLastEntryWithShift(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    // Load saved songs from localStorage
+    loadSavedSongs();
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isShiftHeld, lastEntryWithShift]); // Added dependencies to ensure the effect updates
+
+  // Load saved songs from localStorage
+  function loadSavedSongs() {
+    try {
+      const savedSongsData = localStorage.getItem('savedSongs');
+      if (savedSongsData) {
+        const songs = JSON.parse(savedSongsData);
+        setSavedSongs(songs);
+      }
+    } catch (error) {
+      console.error('Error loading saved songs:', error);
+    }
+  }
+
+  // Save current song to localStorage
+  function saveCurrentSong() {
+    try {
+      // Generate a unique ID for the song if it doesn't have one
+      const songId = songComposition.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
+      
+      // Add the current song to localStorage
+      const songData = JSON.stringify(songComposition);
+      localStorage.setItem(`song-${songId}`, songData);
+      
+      // Update the saved songs list
+      const updatedSavedSongs = [...savedSongs, { id: songId, title: songComposition.title }];
+      setSavedSongs(updatedSavedSongs);
+      localStorage.setItem('savedSongs', JSON.stringify(updatedSavedSongs));
+      
+      alert(`Song "${songComposition.title}" saved successfully!`);
+    } catch (error) {
+      console.error('Error saving song:', error);
+      alert('Failed to save song. Please try again.');
+    }
+  }
+
+  // Load a saved song from localStorage
+  function loadSavedSong(songId: string) {
+    try {
+      const songData = localStorage.getItem(`song-${songId}`);
+      if (songData) {
+        const loadedSong = JSON.parse(songData);
+        setSongComposition(loadedSong);
+        setBeat(loadedSong.beat);
+        setBpm(loadedSong.bpm);
+        setColumns(loadedSong.columns);
+        setSongTitle(loadedSong.title);
+        setShowSavedSongsPanel(false);
+      }
+    } catch (error) {
+      console.error('Error loading song:', error);
+      alert('Failed to load song. The saved data may be corrupted.');
+    }
+  }
+
+  // Delete a saved song
+  function deleteSavedSong(songId: string, event: React.MouseEvent) {
+    event.stopPropagation(); // Prevent triggering the parent click event
+    try {
+      // Remove song data
+      localStorage.removeItem(`song-${songId}`);
+      
+      // Update saved songs list
+      const updatedSavedSongs = savedSongs.filter(song => song.id !== songId);
+      setSavedSongs(updatedSavedSongs);
+      localStorage.setItem('savedSongs', JSON.stringify(updatedSavedSongs));
+      
+      alert('Song deleted successfully');
+    } catch (error) {
+      console.error('Error deleting song:', error);
+      alert('Failed to delete song. Please try again.');
+    }
+  }
+
+  // Import song from JSON
+  function importSongFromJson() {
+    try {
+      setImportError("");
+      const importedData = JSON.parse(importJsonText);
+      
+      // Validate the imported data has the required structure
+      if (!importedData.beat || !importedData.columns || !importedData.bpm || !Array.isArray(importedData.Song)) {
+        throw new Error("Invalid song data format");
+      }
+      
+      // Add title if not present in imported data
+      if (!importedData.title) {
+        importedData.title = "Imported Song";
+      }
+      
+      // Update state with imported data
+      setSongComposition(importedData);
+      setBeat(importedData.beat);
+      setBpm(importedData.bpm);
+      setColumns(importedData.columns);
+      setSongTitle(importedData.title);
+      
+      // Close modal
+      setShowImportModal(false);
+      setImportJsonText("");
+    } catch (error) {
+      console.error('Error importing JSON:', error);
+      setImportError("Invalid JSON format. Please check your data and try again.");
+    }
+  }
+
+  // Handle adding a new line
   function handleAddLine() {
     // Determine number of boxes based on beat
     const configNumber = beat === "2/4" ? 4 : beat === "3/4" ? 3 : 4;
@@ -55,6 +206,7 @@ export default function Notation() {
     // Update song composition by adding the new line
     setSongComposition(prev => ({
       ...prev,
+      title: songTitle,
       beat,
       columns,
       bpm,
@@ -62,6 +214,7 @@ export default function Notation() {
     }));
   }
 
+  // Update notation with or without spaces based on append mode
   function updateLineNotation(
     lineIndex: number, 
     columnIndex: number, 
@@ -72,9 +225,9 @@ export default function Notation() {
     const updatedSong = [...songComposition.Song];
     const currentNote = updatedSong[lineIndex][columnIndex].column[boxIndex].notation[0].note;
     
-    // If in append mode, add the new note to existing notes
+    // If in append mode, add the new note to existing notes (no spaces)
     const newNote = appendMode 
-      ? (currentNote ? `${currentNote} ${value}` : value)
+      ? (currentNote + value)  // No space between notes when appending
       : value;
 
     updatedSong[lineIndex][columnIndex].column[boxIndex].notation[0].note = newNote;
@@ -95,29 +248,99 @@ export default function Notation() {
     }));
   }
 
+  // Handle notation selection with focus movement
   function handleNotationSelect(notation: string, appendMode: boolean = false) {
     if (activeLineIndex !== null && 
         activeColumnIndex !== null && 
         activeBoxIndex !== null) {
+      
+      const usingShift = appendMode || isShiftHeld;
+      
+      // Update the notation
       updateLineNotation(
         activeLineIndex, 
         activeColumnIndex, 
         activeBoxIndex, 
         notation,
-        appendMode
+        usingShift // Use either explicit appendMode or shift key
       );
+      
+      // Track if we're using shift for this entry
+      if (usingShift) {
+        setLastEntryWithShift(true);
+      } else {
+        // Move focus to next input if not in append mode
+        moveFocusToNextInput();
+        setLastEntryWithShift(false);
+      }
+    }
+  }
+
+  // Function to move focus to the next input
+  function moveFocusToNextInput() {
+    if (activeLineIndex === null || 
+        activeColumnIndex === null || 
+        activeBoxIndex === null) return;
+        
+    const songData = songComposition.Song;
+    
+    // Calculate indices for next input
+    let nextLine = activeLineIndex;
+    let nextColumn = activeColumnIndex;
+    let nextBox = activeBoxIndex + 1;
+    
+    // If at the end of the boxes in this column
+    if (nextBox >= songData[nextLine][nextColumn].column.length) {
+      nextBox = 0;
+      nextColumn++;
+      
+      // If at the end of columns in this line
+      if (nextColumn >= songData[nextLine].length) {
+        nextColumn = 0;
+        nextLine++;
+        
+        // If at the end of all lines, wrap back to the beginning
+        if (nextLine >= songData.length) {
+          nextLine = 0;
+        }
+      }
+    }
+    
+    // Set active indices
+    setActiveLineIndex(nextLine);
+    setActiveColumnIndex(nextColumn);
+    setActiveBoxIndex(nextBox);
+    
+    // Focus the next input element
+    const nextInput = inputRefs.current[nextLine]?.[nextColumn]?.[nextBox];
+    if (nextInput) {
+      nextInput.focus();
     }
   }
 
   function trackActiveInput(
     lineIndex: number, 
     columnIndex: number, 
-    boxIndex?: number
+    boxIndex: number | undefined,
+    inputElement: HTMLInputElement | null
   ) {
     setActiveLineIndex(lineIndex);
     setActiveColumnIndex(columnIndex);
     if (boxIndex !== undefined) {
       setActiveBoxIndex(boxIndex);
+    }
+    
+    // Store the input reference
+    if (inputElement && boxIndex !== undefined) {
+      // Initialize the nested array structure if needed
+      if (!inputRefs.current[lineIndex]) {
+        inputRefs.current[lineIndex] = [];
+      }
+      if (!inputRefs.current[lineIndex][columnIndex]) {
+        inputRefs.current[lineIndex][columnIndex] = [];
+      }
+      
+      inputRefs.current[lineIndex][columnIndex][boxIndex] = inputElement;
     }
   }
 
@@ -194,6 +417,9 @@ export default function Notation() {
       ...prev,
       Song: prev.Song.filter((_, index) => index !== lineIndex)
     }));
+    
+    // Update inputRefs array
+    inputRefs.current = inputRefs.current.filter((_, index) => index !== lineIndex);
   }
 
   function exportToJson() {
@@ -202,7 +428,7 @@ export default function Notation() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'song_composition.json';
+    link.download = `${songComposition.title.toLowerCase().replace(/\s+/g, '-')}.json`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -210,11 +436,23 @@ export default function Notation() {
   return (
     <div className="md:px-20 px-5 relative">
       <h1 className="my-20 text-center text-3xl text-blue-900 font-bold">Notation Editor</h1>
+      
+      {/* New song title input */}
+      <div className="mb-4">
+        <label className="block text-gray-700 text-sm font-bold mb-2">Song Title:</label>
+        <input 
+          type="text" 
+          className="shadow appearance-none border rounded w-2xl py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+          value={songTitle}
+          onChange={(e) => setSongTitle(e.target.value)}
+        />
+      </div>
+      
       <div>
-        <textarea placeholder="paste your lyrics here for easy copy paste" className="w-1/2 p-2  bg-gray-100" rows={7}></textarea>
+        <textarea placeholder="paste your lyrics here for easy copy paste" className="w-1/2 p-2 bg-gray-100" rows={7}></textarea>
       </div>
 
-      <div className="flex items-center space-x-4 mb-6">
+      <div className="flex flex-wrap items-center space-x-2 space-y-2 md:space-y-0 mb-6">
         <div>
           <label className="mr-2">Select Beat:</label>
           <select 
@@ -265,7 +503,56 @@ export default function Notation() {
         >
           Export JSON
         </button>
+
+        <button 
+          className="p-3 bg-indigo-600 text-white rounded-lg cursor-pointer" 
+          onClick={() => setShowImportModal(true)}
+        >
+          Import JSON
+        </button>
+
+        <button 
+          className="p-3 bg-purple-600 text-white rounded-lg cursor-pointer" 
+          onClick={saveCurrentSong}
+        >
+          Save Song
+        </button>
+
+        <button 
+          className="p-3 bg-amber-600 text-white rounded-lg cursor-pointer" 
+          onClick={() => setShowSavedSongsPanel(!showSavedSongsPanel)}
+        >
+          {showSavedSongsPanel ? "Hide Saved Songs" : "Show Saved Songs"}
+        </button>
       </div>
+
+      {/* Saved Songs Panel */}
+      {showSavedSongsPanel && (
+        <div className="mb-6 p-4 bg-gray-100 rounded-lg">
+          <h3 className="font-bold text-lg mb-2">Saved Songs</h3>
+          {savedSongs.length === 0 ? (
+            <p className="text-gray-500">No saved songs found.</p>
+          ) : (
+            <ul className="divide-y divide-gray-300">
+              {savedSongs.map(song => (
+                <li 
+                  key={song.id} 
+                  className="py-2 flex justify-between items-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => loadSavedSong(song.id)}
+                >
+                  <span className="font-medium">{song.title}</span>
+                  <button 
+                    onClick={(e) => deleteSavedSong(song.id, e)}
+                    className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-700"
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="p-10 flex flex-col space-y-4">
         {songComposition.Song.map((line, lineIndex) => (
@@ -287,7 +574,24 @@ export default function Notation() {
                         boxIndex, 
                         e.target.value
                       )}
-                      onClick={() => trackActiveInput(lineIndex, columnIndex, boxIndex)}
+                      onClick={(e) => trackActiveInput(
+                        lineIndex, 
+                        columnIndex, 
+                        boxIndex,
+                        e.currentTarget
+                      )}
+                      ref={(el) => {
+                        // Initialize the nested array structure if needed
+                        if (!inputRefs.current[lineIndex]) {
+                          inputRefs.current[lineIndex] = [];
+                        }
+                        if (!inputRefs.current[lineIndex][columnIndex]) {
+                          inputRefs.current[lineIndex][columnIndex] = [];
+                        }
+                        
+                        // Store the ref
+                        inputRefs.current[lineIndex][columnIndex][boxIndex] = el;
+                      }}
                       className="py-3 text-sm border-b-2 w-10 text-center" 
                     />
                   ))}
@@ -309,7 +613,7 @@ export default function Notation() {
                   onContextMenu={(e) => handleLyricsContextMenu(e, lineIndex, columnIndex)}
                   onClick={(e) => {
                     handleLyricsSideClick(e, lineIndex, columnIndex);
-                    trackActiveInput(lineIndex, columnIndex);
+                    trackActiveInput(lineIndex, columnIndex, undefined, null);
                   }}
                   className={`
                     py-3 text-sm bg-gray-100 focus:outline-blue-700 
@@ -337,7 +641,46 @@ export default function Notation() {
         ))}
       </div>
 
-      <NotationSidebar onNotationSelect={handleNotationSelect} />
+      {/* Import JSON Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-xl">
+            <h3 className="text-xl font-bold mb-4">Import Song JSON</h3>
+            <textarea 
+              className="w-full h-64 p-2 border-2 border-gray-300 rounded mb-4"
+              placeholder="Paste your song JSON here..."
+              value={importJsonText}
+              onChange={(e) => setImportJsonText(e.target.value)}
+            ></textarea>
+            {importError && (
+              <p className="text-red-500 mb-4">{importError}</p>
+            )}
+            <div className="flex justify-end space-x-2">
+              <button 
+                className="p-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportJsonText("");
+                  setImportError("");
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="p-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                onClick={importSongFromJson}
+              >
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <NotationSidebar 
+        onNotationSelect={handleNotationSelect} 
+        isShiftHeld={isShiftHeld} 
+      />
     </div>
   );
 }
