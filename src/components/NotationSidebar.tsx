@@ -1,6 +1,7 @@
 //@ts-nocheck
 "use client"
 
+
 import { useState, useEffect, useRef } from "react";
 import { Copy, Check, Keyboard, Move, Maximize2, ArrowDown } from "lucide-react";
 
@@ -23,7 +24,7 @@ const SWARA_CATEGORIES = [
 // Flatten the swaras for search functionality
 const ALL_SWARAS = SWARA_CATEGORIES.flatMap(category => category.swaras);
 
-export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
+export default function NotationSidebar({ onNotationSelect, isShiftHeld }:any) {
   const [copiedNotation, setCopiedNotation] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [recentlyUsed, setRecentlyUsed] = useState([]);
@@ -31,7 +32,7 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
   
   // State for draggable functionality
   const [isDragging, setIsDragging] = useState(false);
-  const [position, setPosition] = useState({ x: window.innerWidth - 300, y: window.innerHeight / 2 - 250 });
+  const [position, setPosition] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
   // State for resizable functionality
@@ -41,9 +42,21 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
   
   // Reference to the sidebar element
   const sidebarRef = useRef(null);
+  
+  // Set initial position after component mounts
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPosition({ 
+        x: window.innerWidth - 300, 
+        y: window.innerHeight / 2 - 250 
+      });
+    }
+  }, []);
 
   // Load position from localStorage on initial render
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     try {
       const savedPosition = localStorage.getItem('notationSidebarPosition');
       const savedSize = localStorage.getItem('notationSidebarSize');
@@ -62,6 +75,8 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
 
   // Save position to localStorage whenever it changes
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     try {
       localStorage.setItem('notationSidebarPosition', JSON.stringify(position));
     } catch (error) {
@@ -71,6 +86,8 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
 
   // Save size to localStorage whenever it changes
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     try {
       localStorage.setItem('notationSidebarSize', JSON.stringify(size));
     } catch (error) {
@@ -80,6 +97,8 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
 
   // Handle start dragging
   const handleMouseDown = (e) => {
+    if (isResizing) return; // Don't initiate drag if resizing
+    if (e.button !== 0) return; // Only left mouse button
     if (e.target.closest('.resize-handle')) return; // Don't initiate drag if resizing
     
     setIsDragging(true);
@@ -102,6 +121,8 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
 
   // Handle mouse movement for both dragging and resizing
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const handleMouseMove = (e) => {
       if (isDragging) {
         const newX = e.clientX - dragOffset.x;
@@ -146,11 +167,13 @@ export default function NotationSidebar({ onNotationSelect, isShiftHeld }) {
 
   // Function to handle copying notation
   const handleCopy = (notation) => {
-    navigator.clipboard.writeText(notation);
-    setCopiedNotation(notation);
+    if (typeof navigator !== 'undefined') {
+      navigator.clipboard.writeText(notation);
+      setCopiedNotation(notation);
 
-    // Automatically reset copied state after 2 seconds
-    setTimeout(() => setCopiedNotation(null), 2000);
+      // Automatically reset copied state after 2 seconds
+      setTimeout(() => setCopiedNotation(null), 2000);
+    }
   };
 
   // Function to handle notation selection

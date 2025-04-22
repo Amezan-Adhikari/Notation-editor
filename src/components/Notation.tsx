@@ -52,6 +52,8 @@ export default function Notation() {
   const WIDTH_CYCLE: ColumnData['lyricsWidth'][] = [undefined, '1/4', '1/2', '3/4', 'full'];
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     // Handle keyboard events for Shift key
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.shiftKey) {
@@ -85,6 +87,8 @@ export default function Notation() {
 
   // Load saved songs from localStorage
   function loadSavedSongs() {
+    if (typeof window === 'undefined') return;
+    
     try {
       const savedSongsData = localStorage.getItem('savedSongs');
       if (savedSongsData) {
@@ -98,6 +102,8 @@ export default function Notation() {
 
   // Save current song to localStorage
   function saveCurrentSong() {
+    if (typeof window === 'undefined') return;
+    
     try {
       // Generate a unique ID for the song if it doesn't have one
       const songId = songComposition.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
@@ -120,6 +126,8 @@ export default function Notation() {
 
   // Load a saved song from localStorage
   function loadSavedSong(songId: string) {
+    if (typeof window === 'undefined') return;
+    
     try {
       const songData = localStorage.getItem(`song-${songId}`);
       if (songData) {
@@ -139,6 +147,8 @@ export default function Notation() {
 
   // Delete a saved song
   function deleteSavedSong(songId: string, event: React.MouseEvent) {
+    if (typeof window === 'undefined') return;
+    
     event.stopPropagation(); // Prevent triggering the parent click event
     try {
       // Remove song data
@@ -423,6 +433,8 @@ export default function Notation() {
   }
 
   function exportToJson() {
+    if (typeof window === 'undefined') return;
+    
     const jsonData = JSON.stringify(songComposition, null, 2);
     const blob = new Blob([jsonData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
