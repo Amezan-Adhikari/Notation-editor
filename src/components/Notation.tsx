@@ -23,6 +23,12 @@ interface SongComposition {
   Song: ColumnData[][];
 }
 
+// New interface for selection tracking
+interface Selection {
+  lineIndex: number;
+  columnIndex: number;
+}
+
 export default function Notation() {
   const [beat, setBeat] = useState("2/4");
   const [bpm, setBpm] = useState(180);
@@ -45,6 +51,12 @@ export default function Notation() {
   const [importError, setImportError] = useState("");
   const [savedSongs, setSavedSongs] = useState<{id: string, title: string}[]>([]);
   const [showSavedSongsPanel, setShowSavedSongsPanel] = useState(false);
+  
+  // New states for copy/paste functionality
+  const [selectedSegments, setSelectedSegments] = useState<Selection[]>([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [clipboardContent, setClipboardContent] = useState<ColumnData[] | null>(null);
+  const [selectionStartPoint, setSelectionStartPoint] = useState<Selection | null>(null);
 
   // Refs to track all input elements for focus management
   const inputRefs = useRef<Array<Array<Array<HTMLInputElement | null>>>>([]);
@@ -54,10 +66,25 @@ export default function Notation() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
-    // Handle keyboard events for Shift key
+    // Handle keyboard events for Shift key and keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.shiftKey) {
         setIsShiftHeld(true);
+      }
+      
+      // Handle Ctrl+C for copy
+      if (e.ctrlKey && e.key === 'c') {
+        handleCopySegments();
+      }
+      
+      // Handle Ctrl+V for paste
+      if (e.ctrlKey && e.key === 'v') {
+        handlePasteSegments();
+      }
+      
+      // Handle Escape to cancel selection
+      if (e.key === 'Escape') {
+        cancelSelection();
       }
     };
 
@@ -83,7 +110,7 @@ export default function Notation() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isShiftHeld, lastEntryWithShift]); // Added dependencies to ensure the effect updates
+  }, [isShiftHeld, lastEntryWithShift, selectedSegments]); // Added dependencies to ensure the effect updates
 
   // Load saved songs from localStorage
   function loadSavedSongs() {
@@ -445,6 +472,147 @@ export default function Notation() {
     URL.revokeObjectURL(url);
   }
 
+  // New functions for copy/paste functionality
+  function toggleSelectionMode() {
+    // Toggle selection mode
+    setIsSelectionMode(!isSelectionMode);
+    
+    // Clear selections when toggling off
+    if (isSelectionMode) {
+      setSelectedSegments([]);
+      setSelectionStartPoint(null);
+    }
+  }
+
+  function handleSegmentSelect(lineIndex: number, columnIndex: number) {
+    if (!isSelectionMode) return;
+    
+    // If this is the first selection in a sequence
+    if (!selectionStartPoint) {
+      const newSelection = { lineIndex, columnIndex };
+      setSelectionStartPoint(newSelection);
+      setSelectedSegments([newSelection]);
+      return;
+    }
+    
+    // If we already have a selection start point, select all segments between
+    const startLine = selectionStartPoint.lineIndex;
+    const startColumn = selectionStartPoint.columnIndex;
+    const endLine = lineIndex;
+    const endColumn = columnIndex;
+    
+    // Calculate the range to select
+    const minLine = Math.min(startLine, endLine);
+    const maxLine = Math.max(startLine, endLine);
+    const selections: Selection[] = [];
+    
+    for (let line = minLine; line <= maxLine; line++) {
+      // For the first line, we need to consider the start column
+      if (line === minLine && line === maxLine) {
+        // If selection is on the same line, select range between columns
+        const minCol = Math.min(startColumn, endColumn);
+        const maxCol = Math.max(startColumn, endColumn);
+        for (let col = minCol; col <= maxCol; col++) {
+          selections.push({ lineIndex: line, columnIndex: col });
+        }
+      } else if (line === minLine) {
+        // First line of multi-line selection
+        const startCol = startLine === minLine ? startColumn : 0;
+        const endCol = songComposition.Song[line].length - 1;
+        for (let col = startCol; col <= endCol; col++) {
+          selections.push({ lineIndex: line, columnIndex: col });
+        }
+      } else if (line === maxLine) {
+        // Last line of multi-line selection
+        const endCol = endLine === maxLine ? endColumn : 0;
+        const startCol = 0;
+        const lastCol = endLine === maxLine ? endCol : songComposition.Song[line].length - 1;
+        for (let col = startCol; col <= lastCol; col++) {
+          selections.push({ lineIndex: line, columnIndex: col });
+        }
+      } else {
+        // Middle lines - select all columns
+        for (let col = 0; col < songComposition.Song[line].length; col++) {
+          selections.push({ lineIndex: line, columnIndex: col });
+        }
+      }
+    }
+    
+    setSelectedSegments(selections);
+  }
+
+  function handleCopySegments() {
+    if (selectedSegments.length === 0) return;
+    
+    // Create a deep copy of the selected segments
+    const copiedContent: ColumnData[] = [];
+    
+    selectedSegments.forEach(segment => {
+      const { lineIndex, columnIndex } = segment;
+      if (songComposition.Song[lineIndex] && songComposition.Song[lineIndex][columnIndex]) {
+        // Deep clone the column data to prevent reference issues
+        const columnData = JSON.parse(JSON.stringify(songComposition.Song[lineIndex][columnIndex]));
+        copiedContent.push(columnData);
+      }
+    });
+    
+    if (copiedContent.length > 0) {
+      setClipboardContent(copiedContent);
+      alert(`${copiedContent.length} segment(s) copied to clipboard`);
+    }
+  }
+
+  function handlePasteSegments() {
+    if (!clipboardContent || clipboardContent.length === 0 || activeLineIndex === null || activeColumnIndex === null) {
+      return;
+    }
+    
+    const updatedSong = [...songComposition.Song];
+    
+    // Get the starting position for paste
+    let currentLine = activeLineIndex;
+    let currentColumn = activeColumnIndex;
+    
+    // Paste each copied segment
+    clipboardContent.forEach((columnData, index) => {
+      // Check if the position is valid
+      if (
+        currentLine < updatedSong.length && 
+        currentColumn < updatedSong[currentLine].length
+      ) {
+        // Deep clone the column data to prevent reference issues
+        const clonedData = JSON.parse(JSON.stringify(columnData));
+        updatedSong[currentLine][currentColumn] = clonedData;
+        
+        // Move to next position (next column or next line)
+        currentColumn++;
+        if (currentColumn >= updatedSong[currentLine].length) {
+          currentColumn = 0;
+          currentLine++;
+        }
+      }
+    });
+    
+    setSongComposition(prev => ({
+      ...prev,
+      Song: updatedSong
+    }));
+    
+    alert(`${clipboardContent.length} segment(s) pasted`);
+  }
+
+  function cancelSelection() {
+    setSelectedSegments([]);
+    setSelectionStartPoint(null);
+    setIsSelectionMode(false);
+  }
+
+  function isSegmentSelected(lineIndex: number, columnIndex: number) {
+    return selectedSegments.some(
+      segment => segment.lineIndex === lineIndex && segment.columnIndex === columnIndex
+    );
+  }
+
   return (
     <div className="md:px-20 px-5 relative">
       <h1 className="my-20 text-center text-3xl text-blue-900 font-bold">Notation Editor</h1>
@@ -536,6 +704,35 @@ export default function Notation() {
         >
           {showSavedSongsPanel ? "Hide Saved Songs" : "Show Saved Songs"}
         </button>
+        
+        {/* New Copy/Paste UI Controls */}
+        <button 
+          className={`p-3 ${isSelectionMode ? "bg-red-500" : "bg-blue-500"} text-white rounded-lg cursor-pointer`} 
+          onClick={toggleSelectionMode}
+        >
+          {isSelectionMode ? "Cancel Selection" : "Select Segments"}
+        </button>
+        
+        {isSelectionMode && (
+          <>
+            <button 
+              className="p-3 bg-green-500 text-white rounded-lg cursor-pointer" 
+              onClick={handleCopySegments}
+              disabled={selectedSegments.length === 0}
+            >
+              Copy Selected ({selectedSegments.length})
+            </button>
+          </>
+        )}
+        
+        {clipboardContent && clipboardContent.length > 0 && (
+          <button 
+            className="p-3 bg-purple-500 text-white rounded-lg cursor-pointer" 
+            onClick={handlePasteSegments}
+          >
+            Paste ({clipboardContent.length})
+          </button>
+        )}
       </div>
 
       {/* Saved Songs Panel */}
@@ -566,13 +763,30 @@ export default function Notation() {
         </div>
       )}
 
+      {/* Copy/Paste Instructions Panel */}
+      {isSelectionMode && (
+        <div className="mb-6 p-4 bg-yellow-100 rounded-lg">
+          <h3 className="font-bold text-lg mb-2">Selection Mode Instructions</h3>
+          <ul className="list-disc pl-5">
+            <li>Click on a segment to start selection</li>
+            <li>Click on another segment to select all segments in between</li>
+            <li>Press ESC key to cancel selection</li>
+            <li>Use Copy button or Ctrl+C to copy selected segments</li>
+            <li>Use Paste button or Ctrl+V to paste at cursor position</li>
+          </ul>
+        </div>
+      )}
+
       <div className="p-10 flex flex-col space-y-4">
         {songComposition.Song.map((line, lineIndex) => (
           <div className="flex px-10 space-x-4 items-center" key={lineIndex}>
             {line.map((column, columnIndex) => (
               <div 
-                className="flex flex-col gap-2 border-r-2 px-2 relative group" 
+                className={`flex flex-col gap-2 border-r-2 px-2 relative group ${
+                  isSegmentSelected(lineIndex, columnIndex) ? 'bg-blue-100' : ''
+                }`}
                 key={columnIndex}
+                onClick={() => isSelectionMode && handleSegmentSelect(lineIndex, columnIndex)}
               >
                 <div className="flex gap-2 justify-between relative">
                   {column.column.map((box, boxIndex) => (
@@ -586,12 +800,18 @@ export default function Notation() {
                         boxIndex, 
                         e.target.value
                       )}
-                      onClick={(e) => trackActiveInput(
-                        lineIndex, 
-                        columnIndex, 
-                        boxIndex,
-                        e.currentTarget
-                      )}
+                      onClick={(e) => {
+                        if (!isSelectionMode) {
+                          trackActiveInput(
+                            lineIndex, 
+                            columnIndex, 
+                            boxIndex,
+                            e.currentTarget
+                          );
+                        } else {
+                          e.stopPropagation();
+                        }
+                      }}
                       ref={(el) => {
                         // Initialize the nested array structure if needed
                         if (!inputRefs.current[lineIndex]) {
@@ -608,14 +828,17 @@ export default function Notation() {
                     />
                   ))}
                   <button 
-                    onClick={() => clearColumn(lineIndex, columnIndex)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearColumn(lineIndex, columnIndex);
+                    }}
                     className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-red-500 text-white text-xs p-1 rounded"
                   >
                     Clear
                   </button>
                 </div>
                 <input 
-                  type="text" 
+                  type="text"
                   value={column.lyrics}
                   onChange={(e) => updateLineLyrics(
                     lineIndex, 
@@ -624,8 +847,12 @@ export default function Notation() {
                   )}
                   onContextMenu={(e) => handleLyricsContextMenu(e, lineIndex, columnIndex)}
                   onClick={(e) => {
-                    handleLyricsSideClick(e, lineIndex, columnIndex);
-                    trackActiveInput(lineIndex, columnIndex, undefined, null);
+                    if (!isSelectionMode) {
+                      handleLyricsSideClick(e, lineIndex, columnIndex);
+                      trackActiveInput(lineIndex, columnIndex, undefined, null);
+                    } else {
+                      e.stopPropagation();
+                    }
                   }}
                   className={`
                     py-3 text-sm bg-gray-100 focus:outline-blue-700 
@@ -644,7 +871,10 @@ export default function Notation() {
               </div>
             ))}
             <button 
-              onClick={() => deleteLine(lineIndex)}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteLine(lineIndex);
+              }}
               className="bg-red-600 text-white p-2 rounded"
             >
               Delete Line
@@ -652,6 +882,27 @@ export default function Notation() {
           </div>
         ))}
       </div>
+
+      {/* Copy/Paste Contextual Menu */}
+      {selectedSegments.length > 0 && (
+        <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg p-4 border border-gray-300 z-50">
+          <p className="font-semibold mb-2">Selected: {selectedSegments.length} segment(s)</p>
+          <div className="flex space-x-2">
+            <button 
+              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              onClick={handleCopySegments}
+            >
+              Copy
+            </button>
+            <button 
+              className="px-3 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              onClick={cancelSelection}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Import JSON Modal */}
       {showImportModal && (
@@ -688,6 +939,15 @@ export default function Notation() {
           </div>
         </div>
       )}
+
+      {/* Right-click Context Menu for selection operations */}
+      <div id="context-menu" className="hidden fixed bg-white shadow-lg rounded-md p-2 border border-gray-200 z-50">
+        <ul>
+          <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Copy</li>
+          <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Paste</li>
+          <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Clear</li>
+        </ul>
+      </div>
 
       <NotationSidebar 
         onNotationSelect={handleNotationSelect} 
